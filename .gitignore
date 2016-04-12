@@ -1,0 +1,6 @@
+!.gitkeep
+ebin/
+deps/
+data/*
+!data/.gitkeep
+rel/

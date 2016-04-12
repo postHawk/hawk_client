@@ -1,0 +1,17 @@
+code:add_patha("ebin/").
+code:add_patha("deps/bson/ebin/").
+code:add_patha("deps/ranch/ebin/").
+code:add_patha("deps/mongodb/ebin/").
+code:add_patha("deps/jsx/ebin/").
+code:add_patha("deps/gproc/ebin/").
+
+application:start(crypto).
+application:start(ranch).
+application:start(gproc).
+application:start(inets).
+
+application:ensure_all_started(shotgun).
+
+application:start (hawk_client).
+
+%observer:start().

@@ -1,0 +1,15 @@
+{application, hawk_client,
+ [
+     {description, ""},
+     {vsn, "0.0.1"},
+     {registered, []},
+     {applications, [
+         kernel,
+         stdlib
+     ]},
+     {mod, { hawk_client_app, []}},
+     {env, [
+         {api_key, <<"key">>},
+         {server_node, 'hawk_server@nodeip'}
+     ]}
+ ]}.
