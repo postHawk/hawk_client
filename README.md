@@ -1,5 +1,7 @@
 # hawk_client
-
+<p align="center">
+<img src="http://res.cloudinary.com/post-hawk/image/upload/v1461237300/%D0%BF%D1%80%D0%BE%D1%86%D0%B5%D1%81%D1%81_%D0%BE%D0%B1%D0%BC%D0%B5%D0%BD%D0%B0_nmytju.png"/>
+</p>
 Post Hawk - это сервис, предоставляющий простое и понятное API, для организации связи между мобильными и web приложениями в режиме реального времени.
 Данный репозиторий содержит клиент для работы с сообщениями. [Сервер](https://github.com/postHawk/hawk_server)
 
