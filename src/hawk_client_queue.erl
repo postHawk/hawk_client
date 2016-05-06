@@ -43,7 +43,6 @@ start_link()  ->
 
 %% @doc Создание нового стека
 handle_call({new, Name, Length}, _From, State) ->
-	ok = file:write_file("/home/admin/test_hawk_client/dirs.log", io_lib:fwrite("~p.\n",[file:get_cwd()])),
 	dets:insert_new(message_queue, {Name, Length, []}),
     {reply, ok, State};
 %% @doc Добавление значения в заданный стек.

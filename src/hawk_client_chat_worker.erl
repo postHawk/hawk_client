@@ -14,12 +14,12 @@
 -include("mac.hrl").
 %% gen_fsm callbacks
 -export([init/1, handle_event/3,
-         handle_sync_event/4, handle_info/3, terminate/3, code_change/4]).
+	handle_sync_event/4, handle_info/3, terminate/3, code_change/4]).
 
 %% FSM States
 -export([
-    'WAIT_FOR_SOCKET'/2,
-    'WAIT_FOR_DATA'/2,
+	'WAIT_FOR_SOCKET'/2,
+	'WAIT_FOR_DATA'/2,
 	'WAIT_USER_MESSAGE'/2,
 	'WAIT_LOGIN_MESSAGE'/2,
 	'POST_ANSWER'/2
@@ -56,15 +56,15 @@ init([Parent]) -> {ok, 'WAIT_FOR_SOCKET', #state{parent=Parent}}.
 	, State :: #state{}) ->  {next_state, 'WAIT_FOR_DATA', State :: #state{}}.
 %% @doc Ждём готовый сокет
 'WAIT_FOR_SOCKET'({socket_ready, Socket, H_name, Transport}, State) ->
-    % Now we own the socket
-    {
-	    next_state,
-	    'WAIT_FOR_DATA', State#state{
-			socket=Socket,
-			host_name=list_to_binary(H_name),
-			transport=Transport
-	    }
-    };
+	% Now we own the socket
+	{
+		next_state,
+		'WAIT_FOR_DATA', State#state{
+		socket=Socket,
+		host_name=list_to_binary(H_name),
+		transport=Transport
+	}
+	};
 
 'WAIT_FOR_SOCKET'(_Other, State) -> {next_state, 'WAIT_FOR_SOCKET', State}.
 
@@ -77,8 +77,8 @@ init([Parent]) -> {ok, 'WAIT_FOR_SOCKET', #state{parent=Parent}}.
 
 %% @doc Падаем по таймауту
 'WAIT_FOR_DATA'(timeout, State) ->
-    error_logger:error_msg("~p Client connection timeout - closing.\n", [self()]),
-    {stop, normal, State};
+	error_logger:error_msg("~p Client connection timeout - closing.\n", [self()]),
+	{stop, normal, State};
 
 %% @doc Пришло что-то неожиданное, игнорируем
 'WAIT_FOR_DATA'(_Data, State) -> {next_state, 'WAIT_FOR_DATA', State}.
@@ -101,7 +101,7 @@ init([Parent]) -> {ok, 'WAIT_FOR_SOCKET', #state{parent=Parent}}.
 	{data, Data :: binary()} |
 	{new_message, Data :: binary()} |
 	{'EXIT', _Pid :: pid(), _Reason :: any()}, State) ->
-		{next_state, 'WAIT_USER_MESSAGE', State} | {stop, normal, State}.
+	{next_state, 'WAIT_USER_MESSAGE', State} | {stop, normal, State}.
 %% @doc Основной обработчик передаваемых сообщений
 'WAIT_USER_MESSAGE'({data, Bin}, #state{socket=S, transport=Transport, parent=Mlogin} = State) ->
 	{ok, Data} =  handle_data(Bin),
@@ -131,12 +131,13 @@ init([Parent]) -> {ok, 'WAIT_FOR_SOCKET', #state{parent=Parent}}.
 					{next_state, 'WAIT_USER_MESSAGE', State}
 			end;
 		false ->
+			Transport:close(S),
 			{stop, normal, State}
 	end;
 
 %% @doc Обработчик сообщения от другого процесса (пользователя)
 'WAIT_USER_MESSAGE'({new_message, Bin}, #state{socket=S, transport=Transport} = State) ->
- 	hawk_client_lib:send_message(true, jsx:encode(Bin), S, Transport),
+	hawk_client_lib:send_message(true, jsx:encode(Bin), S, Transport),
 	{next_state, 'WAIT_USER_MESSAGE', State};
 
 %% @doc Обработчик закрытия дочернего процесса
@@ -151,19 +152,28 @@ init([Parent]) -> {ok, 'WAIT_FOR_SOCKET', #state{parent=Parent}}.
 
 	Res =
 		%определяемся с запрашиваемой командой апи
-		case  hawk_client_lib:get_api_action(POST) of
-			false ->
-				hawk_client_lib:get_server_message(<<"check_data">>, ?ERROR_UNKNOW_DATA_TYPE);
-			{ok, Qtype, JSON} ->
-				%отправку сообщений обрабатываем отдельно
-				case Qtype of
-					<<"send_group_message">> -> api_action({Qtype, JSON}, State) ;
-					<<"send_message">> -> api_action({Qtype, JSON}, State) ;
-					_ -> api_action({Qtype, JSON})
-				end
-		end,
-	
-	Frame = hawk_client_lib:convert_to_binary(["\r\n", Res]),
+	case  hawk_client_lib:get_api_action(POST) of
+		false ->
+			hawk_client_lib:get_server_message(<<"check_data">>, ?ERROR_UNKNOW_DATA_TYPE);
+		{ok, Qtype, JSON} ->
+			%отправку сообщений обрабатываем отдельно
+			case Qtype of
+				<<"send_group_message">> -> api_action({Qtype, JSON}, State, off_output) ;
+				<<"send_message">> -> api_action({Qtype, JSON}, State) ;
+				_ -> api_action({Qtype, JSON})
+			end
+	end,
+
+	Frame = hawk_client_lib:convert_to_binary([
+		"HTTP/1.1 200 OK\r\n",
+		"Cache-Control: no-cache\r\n",
+		"Content-Type: application/json; charset=UTF-8\r\n",
+		"Connection: close\r\n",
+		("Content-Length:" ++ integer_to_list(byte_size(Res)) ++ "\r\n"),
+		"\r\n",
+		Res
+	]),
+
 
 	hawk_client_lib:send_message(false, Frame, S, Transport),
 	Transport:close(S),
@@ -204,9 +214,9 @@ handle_auth_type(strong, Data,  #state{parent=MLogin, host_name=H_name} = State)
 
 	Check =
 		if
-	        Token /= undefined -> compare_token({Login, MLogin, H_name}, Token);
-	        true -> false
-        end,
+			Token /= undefined -> compare_token({Login, MLogin, H_name}, Token);
+			true -> false
+		end,
 	if
 		Check == true ->
 			{ok, User} = ?get_user_by_key(),
@@ -265,9 +275,9 @@ handle_login_main_data({ok,true}, Register_login, #state{socket=S, transport=Tra
 	{next_state, 'WAIT_USER_MESSAGE', State#state{curent_login=RegLogin, register_login=Register_login}}.
 
 -spec handle_json_message({Type :: binary(),
-		{ToUser :: binary(), undefined} |
-		{undefined, ToGrp :: [binary()]} |
-		{ToUser :: binary(), ToGrp :: [binary()]},
+	{ToUser :: binary(), undefined} |
+	{undefined, ToGrp :: [binary()]} |
+	{ToUser :: binary(), ToGrp :: [binary()]},
 	J_data :: tuple()}, State :: #state{}) -> ok.
 %% @doc Обработчик отправки сообщения одному пользователю
 handle_json_message({<<"send_message">>, {ToUser, undefined}, J_data},
@@ -385,7 +395,12 @@ handle_json_message({<<"get_by_group">>, _To, J_data}, #state{socket=S, transpor
 				])
 		end,
 
-	hawk_client_lib:send_message(true, Reply, S, Transport).
+	hawk_client_lib:send_message(true, Reply, S, Transport);
+
+handle_json_message({Action, _To, _J_data}, #state{socket=S, transport=Transport}) ->
+	hawk_client_lib:send_message(
+		true, hawk_client_lib:get_server_message(Action, ?ERROR_INVALID_FORMAT_DATA), S, Transport
+	).
 
 %===============================================
 
@@ -430,7 +445,7 @@ handle_user_message(Output, Pids, _User, J_data, #state{socket=S, transport=Tran
 api_action({<<"register_user">>, J_data}) ->
 	Key = proplists:get_value(<<"key">>, J_data),
 	Id = proplists:get_value(<<"id">>, J_data),
-	
+
 	case check_login_format(Id) of
 		true ->
 			get_data_from_worker({register_user, Key, Id});
@@ -489,7 +504,7 @@ api_action({<<"remove_from_groups">>, J_data}) ->
 	Id = proplists:get_value(<<"id">>, J_data),
 	Groups = proplists:get_value(<<"groups">>, J_data),
 	Domains = proplists:get_value(<<"domains">>, J_data),
-	
+
 	if
 		is_list(Groups) -> get_data_from_worker({remove_from_group, Key, Id, Groups, Domains, ?GROUP_ACCESS_ALL});
 		true -> hawk_client_lib:get_server_message(<<"remove_from_groups">>, ?ERROR_INVALID_GROUP_FORMAT)
@@ -534,14 +549,14 @@ api_action({<<"get_by_group">>,  J_data}) ->
 	Domains = proplists:get_value(<<"domains">>, J_data),
 
 	if
-		is_list(Groups) -> 
+		is_list(Groups) ->
 			case get_data_from_worker({get_by_group, Key, Groups, Domains, ?GROUP_ACCESS_ALL}) of
 				false ->
 					hawk_client_lib:get_server_message(<<"get_by_group">>, ?ERROR_INVALID_GROUP_COUNT);
 				Res ->
 					jsx:encode(Res)
 			end;
-		true -> 
+		true ->
 			hawk_client_lib:get_server_message(<<"get_by_group">>, ?ERROR_INVALID_GROUP_FORMAT)
 	end;
 
@@ -567,7 +582,7 @@ api_action({<<"send_message">>, J_data}, #state{key=Key} = State) ->
 	To = proplists:get_value(<<"to">>, J_data),
 	Domains = proplists:get_value(<<"domains">>, J_data),
 	C_j_data = hawk_client_lib:delete_keys([<<"key">>, <<"domains">>], J_data),
-	
+
 	handle_user_message(off_output, get_data_from_worker({get_pids, Key, [To], Domains}), To, C_j_data, State),
 	hawk_client_lib:get_server_message(<<"send_message">>, false, ?OK).
 
@@ -585,19 +600,19 @@ api_action({<<"send_group_message">>, J_data}, #state{parent=Parent} = State, Ou
 			undefined ->
 				To = proplists:get_value(<<"to">>, J_data),
 				proplists:get_value(<<"group">>, To);
-			Gr ->
-				Gr
+			Gr -> Gr
 		end,
-	
-	Check = if	
-		Parent =/= <<"post_sup">> ->
-			Restriction = ?GROUP_ACCESS_PUBLIC,
-			get_data_from_worker({check_user_domains, Key, Domains, Parent});
-		true ->
-			Restriction = ?GROUP_ACCESS_ALL,
-			true
-	end,
-	
+
+	Check =
+		if
+			Parent =/= <<"post_sup">> ->
+				Restriction = ?GROUP_ACCESS_PUBLIC,
+				get_data_from_worker({check_user_domains, Key, Domains, Parent});
+			true ->
+				Restriction = ?GROUP_ACCESS_ALL,
+				true
+		end,
+
 	if
 		is_list(Groups) andalso is_list(Domains) andalso Check == true ->
 			Res = get_data_from_worker({get_by_group, Key, Groups, Domains, Restriction}),
@@ -605,12 +620,13 @@ api_action({<<"send_group_message">>, J_data}, #state{parent=Parent} = State, Ou
 			hawk_client_lib:loop_lists(fun([Dom, G, Record]) ->
 				Acc = get_access_to_group(G, Dom),
 
-				Allow = if
-					Acc == false -> false;
-					Acc == ?GROUP_ACCESS_PUBLIC -> true;
-					Acc == ?GROUP_ACCESS_PRIVATE -> get_data_from_worker({is_user_in_group, Key, From, G, Dom});
-					true -> false
-				end,
+				Allow =
+					if
+						Acc == false -> false;
+						Acc == ?GROUP_ACCESS_PUBLIC -> true;
+						Acc == ?GROUP_ACCESS_PRIVATE -> get_data_from_worker({is_user_in_group, Key, From, G, Dom});
+						true -> false
+					end,
 
 				case Allow of
 					true ->
@@ -637,7 +653,7 @@ api_action({<<"send_group_message">>, J_data}, #state{parent=Parent} = State, Ou
 			end, [Domains, Groups, Res]),
 
 			hawk_client_lib:get_server_message(<<"send_group_message">>, false, ?OK);
-		true -> 
+		true ->
 			hawk_client_lib:get_server_message(<<"send_group_message">>, ?ERROR_INVALID_GROUP_FORMAT)
 	end.
 
@@ -651,30 +667,30 @@ handle_sync_event(Event, _From, StateName, StateData) -> {stop, {StateName, unde
 %% @doc Запускает основной цикл обработки пользовательских сообщений
 %% вызывается из hawk_client_listener:handle_info/2
 handle_info({?PROTOCOL, Socket, Bin}, StateName, #state{socket=Socket, transport=Transport} = StateData) ->
-    Transport:setopts(Socket, [{active, once}]),
-   	?MODULE:StateName({data, Bin}, StateData);
- 
+	Transport:setopts(Socket, [{active, once}]),
+	?MODULE:StateName({data, Bin}, StateData);
+
 handle_info({?PROTOCOL_CLOSE, Socket}, _StateName,
-            #state{socket=Socket} = StateData) ->
-    {stop, normal, StateData};
+	#state{socket=Socket} = StateData) ->
+	{stop, normal, StateData};
 
 handle_info(Data, StateName, StateData) -> ?MODULE:StateName(Data, StateData).
 
 terminate(_Reason, _StateName, #state{socket=Socket, transport=Transport}) ->
-    (catch Transport:close(Socket)),
-    ok.
- 
+	(catch Transport:close(Socket)),
+	ok.
+
 code_change(_OldVsn, StateName, StateData, _Extra) -> {ok, StateName, StateData}.
 
 -spec get_awsw_key(Key :: binary()) -> {ok, binary()}.
 %% @doc Формирует ответ для handshake запроса
 get_awsw_key(Key) ->
-	Key1 = [Key, "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"],	
+	Key1 = [Key, "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"],
 	<<Mac/binary>> = crypto:hash(sha, list_to_binary(Key1)),
 
 	B_prot = <<"HTTP/1.1 101 Switching Protocols\r\n">>,
 	B_upg = <<"Upgrade: WebSocket\r\n">>,
-	B_conn = <<"Connection: Upgrade\r\n">>, 
+	B_conn = <<"Connection: Upgrade\r\n">>,
 	Answ_key = [<<"Sec-WebSocket-Accept: ">>, base64:encode(Mac), <<"\r\n\r\n">>],
 	B_key = list_to_binary(Answ_key),
 
@@ -684,62 +700,62 @@ get_awsw_key(Key) ->
 -spec unmask(Payload :: integer(), Masking :: binary()) -> binary().
 %% @doc Расшифровка web-socket сообщения
 unmask(Payload, Masking) ->
-    unmask(Payload, Masking, <<>>).
+	unmask(Payload, Masking, <<>>).
 
 -spec unmask(Payload :: integer(), Masking :: binary(), Acc :: binary()) -> binary().
 %% @doc Расшифровка web-socket сообщения
 unmask(Payload, Masking = <<MA:8, MB:8, MC:8, MD:8>>, Acc) ->
-    case size(Payload) of
-        0 -> Acc;
-        1 ->
-            <<A:8>> = Payload,
-            <<Acc/binary, (MA bxor A)>>;
-        2 ->
-            <<A:8, B:8>> = Payload,
-            <<Acc/binary, (MA bxor A), (MB bxor B)>>;
-        3 ->
-            <<A:8, B:8, C:8>> = Payload,
-            <<Acc/binary, (MA bxor A), (MB bxor B), (MC bxor C)>>;
-        _Other ->
-            <<A:8, B:8, C:8, D:8, Rest/binary>> = Payload,
-            Acc1 = <<Acc/binary, (MA bxor A), (MB bxor B), (MC bxor C), (MD bxor D)>>,
-            unmask(Rest, Masking, Acc1)
-    end.
+	case size(Payload) of
+		0 -> Acc;
+		1 ->
+			<<A:8>> = Payload,
+			<<Acc/binary, (MA bxor A)>>;
+		2 ->
+			<<A:8, B:8>> = Payload,
+			<<Acc/binary, (MA bxor A), (MB bxor B)>>;
+		3 ->
+			<<A:8, B:8, C:8>> = Payload,
+			<<Acc/binary, (MA bxor A), (MB bxor B), (MC bxor C)>>;
+		_Other ->
+			<<A:8, B:8, C:8, D:8, Rest/binary>> = Payload,
+			Acc1 = <<Acc/binary, (MA bxor A), (MB bxor B), (MC bxor C), (MD bxor D)>>,
+			unmask(Rest, Masking, Acc1)
+	end.
 
 -spec handle_data(Data :: integer()) -> {ok, binary()}.
 %% @doc Расшифровка web-socket сообщения
 handle_data(Data) ->
-    <<_Fin:1, _Rsv:3, _Opcode:4, _Mask:1, Len:7, Rest/binary>> = Data,
-    %Len2 = size(Data),
-	if 	
+	<<_Fin:1, _Rsv:3, _Opcode:4, _Mask:1, Len:7, Rest/binary>> = Data,
+	%Len2 = size(Data),
+	if
 		(Len >= 126) and (Len =< 65535) ->
 			<<Dop_len:16/unsigned-integer, Masking:4/binary, Payload:Dop_len/binary, _Next/binary>> = Rest;
 		Len > 65536 ->
 			<<Dop_len:64/unsigned-integer, Masking:4/binary, Payload:Dop_len/binary, _Next/binary>> = Rest;
-		true -> 
+		true ->
 			_Dop_len = 0,
 			<<Masking:4/binary, Payload:Len/binary, _Next/binary>> = Rest
 	end,
-    
-    Line = unmask(Payload, Masking),
-    {ok, Line}.
+
+	Line = unmask(Payload, Masking),
+	{ok, Line}.
 
 -spec check_login_format(Data :: binary()) -> boolean().
 %% @doc Проверка формата логина
 check_login_format(Data) ->
 	case re:run(Data, "^[a-zA-Z0-9]{3,64}$") of
-        {match, _} -> 
-        	true;
-        nomatch ->
-        	false
-      end.
+		{match, _} ->
+			true;
+		nomatch ->
+			false
+	end.
 
 -spec get_access_to_group(G :: binary(), Dom :: binary()) -> binary() | false.
 %% @doc Возвращает тип доступа к группе
 get_access_to_group(G, Dom) ->
 	case dets:lookup(groups_to_user, {G, Dom}) of
 		[] -> false;
-		[{_Key, _Users, Access}] -> Access  
+		[{_Key, _Users, Access}] -> Access
 	end.
 
 -spec get_to_from_record(J_data :: tuple()) -> {U :: binary(), Gr :: binary()}.
