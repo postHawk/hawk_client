@@ -10,7 +10,8 @@ Post Hawk - это сервис, предоставляющий простое �
 git clone https://github.com/postHawk/hawk_client.git
 cd hawk_client
 nano src/hawk_client.app.src
-#заполните название server_node, например, 'test_hawk_server@127.0.0.1' и сохраните файл
+#заполните название server_node, например, 'test_hawk_server@127.0.0.1' и api_key (должен совпадать с серверным). Сохраните файл
+
 mv .erlang .erlang_
 ./rebar get-deps compile
 mv .erlang_ .erlang
