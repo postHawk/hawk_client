@@ -631,22 +631,9 @@ api_action({<<"send_group_message">>, J_data}, #state{parent=Parent} = State, Ou
 				case Allow of
 					true ->
 						Group = proplists:get_value(G, Record),
-						lists:foreach(fun(U) ->
-							Ulogin = proplists:get_value(user, U),
-							O = proplists:get_value(online, U),
-							if
-								O ->
-									To_data = [{from, From}, {to_user, Ulogin}, {to_group, G}, {text, Text}, {event, Event}],
-									handle_user_message(
-										Output,
-										get_data_from_worker({get_pids, Key, [Ulogin], [Dom]}),
-										Ulogin,
-										To_data,
-										State
-									);
-								true -> true
-							end
-						end, proplists:get_value(users, Group));
+						send_user_message(
+							proplists:get_value(users, Group), From, G, Text, Event, Key, Dom, State, Output
+						);
 					false ->
 						hawk_client_lib:get_server_message(<<"send_group_message">>, ?ERROR_ACCESS_DENIED_TO_GROUP)
 				end
@@ -656,6 +643,33 @@ api_action({<<"send_group_message">>, J_data}, #state{parent=Parent} = State, Ou
 		true ->
 			hawk_client_lib:get_server_message(<<"send_group_message">>, ?ERROR_INVALID_GROUP_FORMAT)
 	end.
+
+send_user_message(Users, From, G, Text, Event, Key, Dom, State, Output) ->
+	send_user_message(Users, From, G, Text, Event, Key, Dom, State, Output, []).
+
+send_user_message([], _From, _G, _Text, _Event, _Key, _Dom, _State, _Output, _Sended) -> true;
+
+send_user_message([U|T] = _Users, From,  G, Text, Event, Key, Dom, State, Output, Sended) ->
+	Ulogin = proplists:get_value(user, U),
+	O = proplists:get_value(online, U),
+	NewSended = if
+		O ->
+			To_data = [{from, From}, {to_user, Ulogin}, {to_group, G}, {text, Text}, {event, Event}],
+			Ex = lists:member(Ulogin, Sended),
+			if
+				Ex == true -> true;
+				true ->	handle_user_message(
+					Output,
+					get_data_from_worker({get_pids, Key, [Ulogin], [Dom]}),
+					Ulogin,
+					To_data,
+					State
+				),
+				[Ulogin|Sended]
+			end;
+		true -> Sended
+	end,
+	send_user_message(T, From, G, Text, Event, Key, Dom, State, Output, NewSended).
 
 %===============================================
 
