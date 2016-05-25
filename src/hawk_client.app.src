@@ -9,7 +9,7 @@
      ]},
      {mod, { hawk_client_app, []}},
      {env, [
-         {api_key, <<"my very secret key">>},
+         {api_key, <<"da5731a973aa0ed6fdc35533e47091bc80cbc0ea368a863cf39b18ad079bf1cd">>},
          {server_node, 'hawk_server@127.0.0.1'}
      ]}
  ]}.

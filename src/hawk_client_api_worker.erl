@@ -54,23 +54,25 @@ handle_cast({From, Params}, State) ->
 handle_cast(terminate, State) -> {stop, normal, State}.
 
 -spec api_action(
-	{register_user, _Key :: binary(), Id :: binary()} |
-	{unregister_user, _Key :: binary(), Id :: binary()} |
-	{add_in_groups, _Key :: binary(), Login:: binary(), Groups :: [binary()], Domains :: [binary()], Restriction :: binary()} |
-	{remove_from_group, _Key :: binary(), Login:: binary(), Groups :: [binary()], Domains :: [binary()], Restriction :: binary()} |
-	{get_by_group, _Key :: binary(), Groups :: [binary()], Domains :: [binary()], Restriction :: binary()} |
-	{add_groups, _Key :: binary(), Groups :: [binary()], Domains :: [binary()]} |
-	{remove_groups, _Key :: binary(), Groups :: [binary()], Domains :: [binary()]} |
-	{get_group_list, _Key :: binary(), Access :: binary(), Domains :: [binary()]} |
-	{get_group_by_simple_user,  _Key :: binary(), Login :: binary(), Access :: binary(), Domains :: [binary()]} |
-	{add_chanel, _Key :: binary(), Name :: binary(), Access :: binary(), Domains :: [binary()]} |
-	{remove_chanel, _Key :: binary(), Name :: binary(), Domains :: [binary()]} |
-	{check_user_by_domain, Key :: binary(), Id :: binary(), Domain :: binary()} |
-	{check_user_domains, Key :: binary(), Domains :: [binary()], Login :: binary()} |
-	{get_pids, _Key :: binary(), Login :: binary(), Domains :: [binary()]} |
-	{is_user_in_group, _Key :: binary(), Login :: binary(), Group :: binary(), Dom :: binary()} |
-	{get_token, _Key :: binary(), Login :: binary(), Salt :: binary(), Domains :: [binary()]}, User :: #{}) -> binary() | list().
-
+		{register_user, _Key :: binary(), Id :: binary()} |
+		{unregister_user, _Key :: binary(), Id :: binary()} |
+		{add_in_groups, _Key :: binary(), Login:: binary(), Groups :: [binary()], Domains :: [binary()], Restriction :: binary()} |
+		{remove_from_group, _Key :: binary(), Login:: binary(), Groups :: [binary()], Domains :: [binary()], Restriction :: binary()} |
+		{get_by_group, _Key :: binary(), Groups :: [binary()], Domains :: [binary()], Restriction :: binary()} |
+		{add_groups, _Key :: binary(), Groups :: [binary()], Domains :: [binary()]} |
+		{remove_groups, _Key :: binary(), Groups :: [binary()], Domains :: [binary()]} |
+		{get_group_list, _Key :: binary(), Access :: binary(), Domains :: [binary()]} |
+		{get_group_by_simple_user,  _Key :: binary(), Login :: binary(), Access :: binary(), Domains :: [binary()]} |
+		{add_chanel, _Key :: binary(), Name :: binary(), Access :: binary(), Domains :: [binary()]} |
+		{remove_chanel, _Key :: binary(), Name :: binary(), Domains :: [binary()]} |
+		{check_user_by_domain, Key :: binary(), Id :: binary(), Domain :: binary()} |
+		{check_user_domains, Key :: binary(), Domains :: [binary()], Login :: binary()} |
+		{get_pids, _Key :: binary(), Login :: binary(), Domains :: [binary()]} |
+		{is_user_in_group, _Key :: binary(), Login :: binary(), Group :: binary(), Dom :: binary()} |
+		{get_token, _Key :: binary(), Login :: binary(), Salt :: binary(), Domains :: [binary()]} |
+		{is_online, _Key :: binary(), Login :: binary(), Domains :: [binary()]}
+		, User :: #{}
+	) -> binary() | list().
 
 %% @doc регистрирует логин пользователя в связке с корневым пользователем
 api_action({register_user, _Key, Id}, User) ->
@@ -183,7 +185,12 @@ api_action({get_token, _Key, Login, Salt, Domains}, User) ->
 		Mlogin = maps:get(<<"login">>, User),
 		set_token({Login, Mlogin, Dom}, Token),
 		{Dom, Token}
-	end, Domains).
+	end, Domains);
+
+%% @doc Возвращает статус пользователя online/offline
+api_action({is_online, _Key, Login, Domains}, User) ->
+	Mlogin = maps:get(<<"login">>, User),
+	lists:map(fun(Dom) -> {Dom, [{user, Login}, {online, is_user_online(Login, Dom, Mlogin)}]} end, Domains).
 
 -spec add_user_to_group(Login :: binary(), Groups :: [binary()], Domains :: [binary()], MLogin :: binary(), Restriction :: binary()) -> ok.
 %% @doc Добавляет пользователя в группу

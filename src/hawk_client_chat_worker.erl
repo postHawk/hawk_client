@@ -152,17 +152,17 @@ init([Parent]) -> {ok, 'WAIT_FOR_SOCKET', #state{parent=Parent}}.
 
 	Res =
 		%определяемся с запрашиваемой командой апи
-	case  hawk_client_lib:get_api_action(POST) of
-		false ->
-			hawk_client_lib:get_server_message(<<"check_data">>, ?ERROR_UNKNOW_DATA_TYPE);
-		{ok, Qtype, JSON} ->
-			%отправку сообщений обрабатываем отдельно
-			case Qtype of
-				<<"send_group_message">> -> api_action({Qtype, JSON}, State, off_output) ;
-				<<"send_message">> -> api_action({Qtype, JSON}, State) ;
-				_ -> api_action({Qtype, JSON})
-			end
-	end,
+		case  hawk_client_lib:get_api_action(POST) of
+			false ->
+				hawk_client_lib:get_server_message(<<"check_data">>, ?ERROR_UNKNOW_DATA_TYPE);
+			{ok, Qtype, JSON} ->
+				%отправку сообщений обрабатываем отдельно
+				case Qtype of
+					<<"send_group_message">> -> api_action({Qtype, JSON}, State, off_output) ;
+					<<"send_message">> -> api_action({Qtype, JSON}, State) ;
+					_ -> api_action({Qtype, JSON})
+				end
+		end,
 
 	Frame = hawk_client_lib:convert_to_binary([
 		"HTTP/1.1 200 OK\r\n",
@@ -397,6 +397,13 @@ handle_json_message({<<"get_by_group">>, _To, J_data}, #state{socket=S, transpor
 
 	hawk_client_lib:send_message(true, Reply, S, Transport);
 
+%% @doc Возвращает статус пользователя online/offline
+handle_json_message({<<"is_online">>, _To, J_data}, #state{socket=S, transport=Transport}) ->
+	Res = api_action({<<"is_online">>, J_data}),
+
+	Reply = jsx:encode([{event, proplists:get_value(<<"event">>, J_data)} | jsx:decode(Res)]),
+	hawk_client_lib:send_message(true, Reply, S, Transport);
+
 handle_json_message({Action, _To, _J_data}, #state{socket=S, transport=Transport}) ->
 	hawk_client_lib:send_message(
 		true, hawk_client_lib:get_server_message(Action, ?ERROR_INVALID_FORMAT_DATA), S, Transport
@@ -463,6 +470,14 @@ api_action({<<"unregister_user">>, J_data}) ->
 		false ->
 			hawk_client_lib:get_server_message(<<"unregister_user">>, ?ERROR_INVALID_LOGIN_FORMAT)
 	end;
+
+%% @doc Возвращает статус пользователя online/offline
+api_action({<<"is_online">>, J_data}) ->
+	Key = proplists:get_value(<<"key">>, J_data),
+	Id = proplists:get_value(<<"id">>, J_data),
+	Domains = proplists:get_value(<<"domains">>, J_data),
+	Res = get_data_from_worker({is_online, Key, Id, Domains}),
+	jsx:encode(hawk_client_lib:get_server_message(<<"is_online">>, false, Res, false));
 
 %===============================================
 %===========ACTION ON CHANELS
