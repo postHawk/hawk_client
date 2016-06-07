@@ -27,7 +27,7 @@ start_link(Ref, Socket, Transport, Opts) ->
 init(Ref, Socket, Transport, _Opts = []) ->
 	ok = proc_lib:init_ack({ok, self()}),
 	ok = ranch:accept_ack(Ref),
-	ok = Transport:setopts(Socket, [{active, once}]),
+	ok = Transport:setopts(Socket, [binary, {active, once}, {packet, http}]),
 	gen_server:enter_loop(?MODULE, [],
 		#state{socket=Socket, transport=Transport}).
 
@@ -35,22 +35,32 @@ init(Ref, Socket, Transport, _Opts = []) ->
 init([]) -> {ok, undefined}.
 
 %% @doc Оработчик нового подключения
-handle_info({?PROTOCOL, Socket, Data}, State=#state{socket=Socket, transport=Transport}) ->
-	Transport:setopts(Socket, [{active, once}]),
- 	
-	{ok, {http_request,Method,{abs_path, _URL},_}, H} = erlang:decode_packet(http, Data, []),
-	[Headers, {body, _Body}] = hawk_client_lib:parse_header(H),
+handle_info({http, Socket, {http_request, Method, _Path, _Version}}, State=#state{socket=Socket, transport=Transport})   -> 
+  
+	Headers = get_headers(Transport, Socket),
+	Length= proplists:get_value(<<"Content-Length">>, Headers),
+	
+	Body = 
+		case Length of
+			undefined -> <<"">>;
+			Length ->
+				Transport:setopts(Socket, [{packet, raw}]),
+				{ok, B} = Transport:recv(Socket, list_to_integer(binary_to_list(Length)), infinity), 
+				B
+		end,
+	
+	%?DBG([Headers, Body]),
+
 	case set_client({Method, Headers}) of
 		{ok, false} ->
-			hawk_client_chat_worker:handle_req_by_type(get, Data, Socket, Transport),
+			hawk_client_chat_worker:handle_req_by_type(get, Body, Socket, Transport),
 			hawk_client_lib:send_message(
 				true, hawk_client_lib:get_server_message(<<"handshake">>, ?ERROR_DOMAIN_NOT_REGISTER), Socket, Transport
 			);
 		{ok, Client, Host} ->
-			Transport:setopts(Socket, [{active, once}]),
 			Transport:controlling_process(Socket, Client),
 			gen_fsm:send_event(Client, {socket_ready, Socket, binary_to_list(Host), Transport}),
- 			gen_fsm:send_event(Client, {data, Data})
+ 			gen_fsm:send_event(Client, [{data, Body}, {headers, Headers}])
 	end,
 
 	{stop, normal, State};
@@ -101,5 +111,14 @@ set_client({'POST', Headers}) ->
 	),
 	{ok, Client, Host}.
 
+%% @doc Собирает заголовки запроса
+get_headers(Transport, Socket) -> 
+	get_headers(Transport, Socket, Transport:recv(Socket, 0, 60000), []).
 
+get_headers(Transport, Socket, {ok, {http_header, _, Header, _, Val}}, Acc) ->
+	get_headers(
+		Transport, Socket, Transport:recv(Socket, 0, 60000), 
+		[{hawk_client_lib:convert_to_binary({conv, Header}), hawk_client_lib:convert_to_binary({conv, Val})}|Acc]
+	);
 
+get_headers(_Transport, _Socket, {ok, http_eoh}, Acc) -> Acc.

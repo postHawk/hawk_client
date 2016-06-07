@@ -187,7 +187,7 @@ api_action({get_token, _Key, Login, Salt, Domains}, User) ->
 		{Dom, Token}
 	end, Domains);
 
-%% @doc Возвращает статус пользователя online/offline
+%% @doc Возвращает токен авторизации
 api_action({is_online, _Key, Login, Domains}, User) ->
 	Mlogin = maps:get(<<"login">>, User),
 	lists:map(fun(Dom) -> {Dom, [{user, Login}, {online, is_user_online(Login, Dom, Mlogin)}]} end, Domains).
@@ -374,19 +374,28 @@ get_users_by_groups(_, _, _, _) -> false.
 -spec get_users_in_group(Type :: record | list, Gr :: binary(), Domains :: [binary()], Restriction :: binary(), MLogin :: binary()) -> list().
 %% @doc Возвращает  список пользователей в одной группе
 get_users_in_group(Type, Gr, Domains, Restriction, Mlogin) ->
-	FunD = fun(Dom) ->
-		case dets:lookup(groups_to_user, {Gr, Dom}) of
-			[] ->
-				[];
-			[{_, Users, Access}] -> get_users_in_group(Type, Restriction, Access, Users, Dom, Mlogin)
-		end
-	end,
-	[List] = lists:map(FunD, Domains),
-
+	List = [L || L <- compile_users_in_group(Gr, Domains, Type, Restriction, Mlogin), L /= []],
 	case hawk_client_lib:list_is_empty(List) of
 		true -> [];
 		false -> List
 	end.
+
+-spec compile_users_in_group(Gr :: binary(), Domains :: [binary()], Type :: record | list, Restriction :: binary(), MLogin :: binary()) -> list().
+%% @doc Собирает пользователей в группе в пригодный для использования формат
+compile_users_in_group(Gr, [Dom|T] = Domains, Type, Restriction, Mlogin) ->
+	compile_users_in_group(Gr, [Dom|T] = Domains, Type, Restriction, Mlogin, []).
+
+-spec compile_users_in_group(Gr :: binary(), Domains :: [binary()], Type :: record | list, Restriction :: binary(), MLogin :: binary(), Acc :: list()) -> list().
+compile_users_in_group(_Gr, [], _Type, _Restriction, _Mlogin, Acc) -> Acc;
+
+compile_users_in_group(Gr, [Dom|T], Type, Restriction, Mlogin, Acc) ->
+	Rec = case dets:lookup(groups_to_user, {Gr, Dom}) of
+		[] -> [];
+		[{_, Users, Access}] -> get_users_in_group(Type, Restriction, Access, Users, Dom, Mlogin)
+	end,
+
+	compile_users_in_group(Gr, T, Type, Restriction, Mlogin, lists:append(Acc, Rec)).
+
 
 %% @doc Возвращает  список пользователей в заданном формате
 get_users_in_group(record, Restriction, Access, Users, Dom, Mlogin) ->
@@ -436,10 +445,7 @@ is_user_online(U, Dom, Mlogin) ->
 -spec check_user_domains(UDomains :: [binary()], Domains :: [binary()]) -> boolean().
 %% @doc Проверяет входит ли домен пользователя в список зарегистрированных
 check_user_domains(UDomains, Domains) when is_list(Domains) and is_list(UDomains) ->
-	case string:str(lists:sort(UDomains), lists:sort(Domains)) of
-		0 -> false;
-		_ -> true
-	end;
+	lists:all(fun(D) -> lists:member(D, UDomains) end, Domains);
 
 check_user_domains(_UDomains, _Domains) -> false.
 

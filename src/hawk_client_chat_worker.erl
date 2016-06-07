@@ -35,7 +35,8 @@
 	curent_login,
 	register_login,
 	transport,
-	parent
+	parent,
+	headers
 }).
 
 -spec get_data_from_worker(Params :: any()) -> any().
@@ -57,6 +58,7 @@ init([Parent]) -> {ok, 'WAIT_FOR_SOCKET', #state{parent=Parent}}.
 %% @doc Ждём готовый сокет
 'WAIT_FOR_SOCKET'({socket_ready, Socket, H_name, Transport}, State) ->
 	% Now we own the socket
+	Transport:setopts(Socket, [{active, once}, {packet, raw}]),
 	{
 		next_state,
 		'WAIT_FOR_DATA', State#state{
@@ -72,8 +74,8 @@ init([Parent]) -> {ok, 'WAIT_FOR_SOCKET', #state{parent=Parent}}.
 	, State :: #state{}) ->
 	{next_state, 'WAIT_LOGIN_MESSAGE', State :: #state{}} | {stop, normal, State :: #state{}}.
 %% @doc Обрабатываем поступившие данные
-'WAIT_FOR_DATA'({data, Data}, State) ->
-	handle_req_by_type(hawk_client_lib:is_post_req(Data), Data, State);
+'WAIT_FOR_DATA'([{data, Data}, {headers, Headers}], State) ->
+	handle_req_by_type(hawk_client_lib:is_post_req(Headers), Data, State#state{headers=Headers});
 
 %% @doc Падаем по таймауту
 'WAIT_FOR_DATA'(timeout, State) ->
@@ -86,16 +88,18 @@ init([Parent]) -> {ok, 'WAIT_FOR_SOCKET', #state{parent=Parent}}.
 -spec 'WAIT_LOGIN_MESSAGE'({data, Data :: binary()}, State :: #state{}) ->
 	{next_state, 'WAIT_USER_MESSAGE', State :: #state{}} | {stop, normal, State :: #state{}}.
 %% @doc Пришло сообщение с логином пользвоателя
-'WAIT_LOGIN_MESSAGE'({data, Bin}, State) ->
+'WAIT_LOGIN_MESSAGE'({data, Bin}, #state{socket=S, transport=Transport} = State) ->
 	{ok, Data} =  handle_data(Bin),
 	IsJson = jsx:is_json(Data),
 	% в текущей версии поддерживается старый тип авторизации по логину
 	%без токена
 	%@todo убрать авторизацию без токена
-	if
+	Res = if
 		IsJson /= false -> handle_auth_type(strong, jsx:decode(Data),  State) ;
 		true -> handle_auth_type(simple, Data, State)
-	end.
+	end,
+	Transport:setopts(S, [{active, once}, {packet, raw}]),
+	Res.
 
 -spec 'WAIT_USER_MESSAGE'(
 	{data, Data :: binary()} |
@@ -104,35 +108,45 @@ init([Parent]) -> {ok, 'WAIT_FOR_SOCKET', #state{parent=Parent}}.
 	{next_state, 'WAIT_USER_MESSAGE', State} | {stop, normal, State}.
 %% @doc Основной обработчик передаваемых сообщений
 'WAIT_USER_MESSAGE'({data, Bin}, #state{socket=S, transport=Transport, parent=Mlogin} = State) ->
-	{ok, Data} =  handle_data(Bin),
+	{ok, RData}  = 
+		if
+			(byte_size(Bin) >= 1460) -> 
+				Transport:setopts(S, [{packet, raw}]),
+				Transport:recv(S, 6553500, infinity);
+			true -> {ok, <<"">>}
+		end,
 
-	case jsx:is_json(Data) of
-		true ->
-			J_data = jsx:decode(Data),
-
-			case J_data of
+	case byte_size(<<Bin/binary, RData/binary>>)  of
+		8 ->
+			{next_state, 'WAIT_USER_MESSAGE', State};
+		_ ->
+			{ok, Data} =  handle_data(<<Bin/binary, RData/binary>>),
+			case jsx:is_json(Data) of
+				true ->
+					case jsx:decode(Data) of
+						false ->
+							Transport:close(S),
+							{stop, normal, State};
+						J_data ->
+							Action = proplists:get_value(<<"hawk_action">>, J_data),
+							Login = get_user_login(J_data),
+							case dets:lookup(reg_users_data, {Login, Mlogin}) of
+								[] ->
+									hawk_client_lib:get_server_message(
+										proplists:get_value(<<"event">>, J_data), ?ERROR_USER_NOT_REGISTER
+									);
+								_ ->
+									handle_json_message({
+										Action, get_to_from_record(J_data), J_data
+									}, State)
+							end,
+							Transport:setopts(S, [{active, once}]),
+							{next_state, 'WAIT_USER_MESSAGE', State}
+					end;
 				false ->
 					Transport:close(S),
-					{stop, normal, State};
-				_ ->
-
-					Action = proplists:get_value(<<"hawk_action">>, J_data),
-					Login = get_user_login(J_data),
-					case dets:lookup(reg_users_data, {Login, Mlogin}) of
-						[] ->
-							hawk_client_lib:get_server_message(
-								proplists:get_value(<<"event">>, J_data), ?ERROR_USER_NOT_REGISTER
-							);
-						_ ->
-							handle_json_message({
-								Action, get_to_from_record(J_data), J_data
-							}, State)
-					end,
-					{next_state, 'WAIT_USER_MESSAGE', State}
-			end;
-		false ->
-			Transport:close(S),
-			{stop, normal, State}
+					{stop, normal, State}
+			end
 	end;
 
 %% @doc Обработчик сообщения от другого процесса (пользователя)
@@ -144,12 +158,9 @@ init([Parent]) -> {ok, 'WAIT_FOR_SOCKET', #state{parent=Parent}}.
 'WAIT_USER_MESSAGE'({'EXIT', _Pid, _Reason}, State) ->
 	{next_state, 'WAIT_USER_MESSAGE', State}.
 
--spec 'POST_ANSWER'({data, Data :: binary()}, State) ->  {stop, normal, State}.
+-spec 'POST_ANSWER'({data, POST :: binary()}, State) ->  {stop, normal, State}.
 %% @doc Обработчик POST-запроса из библиотеки
-'POST_ANSWER'({data, Data}, #state{socket=S, transport=Transport} = State) ->
-	{ok, {http_request,_Method,{abs_path, _URL},_}, H} = erlang:decode_packet(http, Data, []),
-	[_Headers, {body, POST}] = hawk_client_lib:parse_header(H),
-
+'POST_ANSWER'({data, POST}, #state{socket=S, transport=Transport} = State) ->
 	Res =
 		%определяемся с запрашиваемой командой апи
 		case  hawk_client_lib:get_api_action(POST) of
@@ -188,11 +199,13 @@ init([Parent]) -> {ok, 'WAIT_FOR_SOCKET', #state{parent=Parent}}.
 handle_req_by_type(get, Data, S, Transport) -> handle_req_by_type(get, Data, #state{socket=S, transport=Transport}).
 handle_req_by_type(post, Data, State)       -> ?MODULE:'POST_ANSWER'({data, Data}, State);
 %% @doc Обрабатываем handshake запрос
-handle_req_by_type(get, Data, #state{socket=S, transport=Transport} = State) ->
-	{ok, {http_request,_Method,{abs_path, _URL},_}, H} = erlang:decode_packet(http, Data, []),
-	[Headers, {body, _Body}] = hawk_client_lib:parse_header(H),
+handle_req_by_type(get, _Data, #state{socket=S, transport=Transport, headers=Headers} = State) ->
+	Key = 
+		case proplists:get_value(<<"Sec-WebSocket-Key">>, Headers) of
+			undefined -> proplists:get_value(<<"Sec-Websocket-Key">>, Headers);
+			K -> K
+		end,
 
-	Key = proplists:get_value(<<"Sec-WebSocket-Key">>, Headers),
 	case Key of
 		undefined -> B_all_answ = hawk_client_lib:get_server_message(<<"handshake">>, ?ERROR_INVALID_HANDSHAKE);
 		_ -> {ok, B_all_answ} = get_awsw_key(Key)
@@ -648,7 +661,7 @@ api_action({<<"send_group_message">>, J_data}, #state{parent=Parent} = State, Ou
 						Group = proplists:get_value(G, Record),
 						send_user_message(
 							proplists:get_value(users, Group), From, G, Text, Event, Key, Dom, State, Output
-						);
+						);		
 					false ->
 						hawk_client_lib:get_server_message(<<"send_group_message">>, ?ERROR_ACCESS_DENIED_TO_GROUP)
 				end
@@ -695,8 +708,8 @@ handle_sync_event(Event, _From, StateName, StateData) -> {stop, {StateName, unde
 	{next_state, 'WAIT_FOR_DATA', State :: #state{}}.
 %% @doc Запускает основной цикл обработки пользовательских сообщений
 %% вызывается из hawk_client_listener:handle_info/2
-handle_info({?PROTOCOL, Socket, Bin}, StateName, #state{socket=Socket, transport=Transport} = StateData) ->
-	Transport:setopts(Socket, [{active, once}]),
+handle_info({?PROTOCOL, Socket, Bin}, StateName, #state{socket=Socket} = StateData) ->
+	%Transport:setopts(Socket, [{active, once}]),
 	?MODULE:StateName({data, Bin}, StateData);
 
 handle_info({?PROTOCOL_CLOSE, Socket}, _StateName,

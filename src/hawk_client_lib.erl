@@ -33,13 +33,15 @@ get_api_action(Str) ->
 		Qtype 	  -> {ok, Qtype, Json}
 	end.
 
--spec is_post_req(Data :: binary()) -> post | get.
+-spec is_post_req(Data :: list()) -> post | get.
 %% @doc Определяет тип запроса
 is_post_req(Data) ->
-	case re:run(Data, "^POST \/ HTTP\/1.[1,0]+\r\n") of
-		{match, _} -> post;
-		nomatch    -> get
-	end.
+
+	case proplists:get_value(<<"Transport">>, Data) of
+        <<"curl">> -> post;
+        <<"socket">> -> post;
+        _    -> get
+    end.
 
 -spec send_message(true | false, Frame :: binary(), S :: tuple(), T :: module()) -> ok.
 %% @doc Отправляет сообщение пользователю
@@ -68,7 +70,7 @@ send_message_to_pid(Pid, J_data) ->
 %% @doc Кодирует сообщение в формат web socket
 mask(Data) ->
 	Len = size(Data),
-	if
+	if 	
 		(Len >= 126) and (Len =< 65535) -> Frame = <<1:1, 0:3, 1:4, 0:1, 126:7, Len:16, Data/binary>>;
 		Len > 65536                     -> Frame = <<1:1, 0:3, 1:4, 0:1, 127:7, Len:64, Data/binary>>;
 		true                            -> Frame = <<1:1, 0:3, 1:4, 0:1, Len:7, Data/binary>>
